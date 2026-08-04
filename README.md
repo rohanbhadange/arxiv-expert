@@ -46,7 +46,10 @@ Setup asks for the API key with masked terminal input, lets the user search the
 bundled official arXiv taxonomy, creates the first expert, and installs the
 platform's user-level daily task. It does not open another window.
 
-Start chat with:
+## Use it
+
+Start the expert from the repository directory. Use the executable inside the
+virtual environment so activation is not required.
 
 Linux and macOS:
 
@@ -63,6 +66,18 @@ Windows PowerShell:
 The command performs a catch-up sync, starts the local server, and prints
 `http://localhost:8501`. It deliberately does not open a browser automatically
 and binds only to the local computer.
+
+Open the printed address and:
+
+1. Use **Analyze** to ask what papers found, compared, or concluded.
+2. Use **Experiment Designer** to turn the library into hypotheses, baselines,
+   ablations, measurements, and follow-up experiments.
+3. Follow **Library** citations for ingested papers and **Web** citations for
+   relevant work that is not in the saved corpus.
+4. Open the **Library** tab to inspect paper titles and indexing status.
+
+Chats and the paper library persist between sessions. Stop the local server
+with `Ctrl+C`; daily ingestion continues through the installed background task.
 
 ## Operational commands
 
