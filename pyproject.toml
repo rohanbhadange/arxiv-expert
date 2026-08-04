@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arxiv-expert"
-version = "0.1.0"
+version = "0.2.0"
 description = "A self-updating, cited research expert built from an arXiv category."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ dependencies = [
   "httpx>=0.27,<1",
   "openai>=2.15,<3",
   "platformdirs>=4.3",
-  "streamlit>=1.41",
+  "streamlit>=1.48",
   "typer>=0.15",
 ]
 
@@ -47,6 +47,9 @@ arxiv-expert = "arxiv_expert.cli:app"
 Homepage = "https://github.com/rohanbhadange/arxiv-expert"
 Issues = "https://github.com/rohanbhadange/arxiv-expert/issues"
 Repository = "https://github.com/rohanbhadange/arxiv-expert.git"
+
+[tool.hatch.build]
+dev-mode-dirs = ["src"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/arxiv_expert"]

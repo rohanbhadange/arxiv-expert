@@ -89,6 +89,18 @@ def test_search_uses_rewrite_limit_and_score_threshold(db, created_at):
     assert client.vector_stores.search_request["ranking_options"]["score_threshold"] == 0.35
 
 
+def test_focused_search_uses_arxiv_id_attribute_filter(db, created_at):
+    expert, _ = objects(db, created_at)
+    client = FakeClient()
+    service = OpenAIService(Settings.create("sk-test"), client=client)
+    service.search_library(expert, "adaptive robotics", ["2608.00001", "2608.00002"])
+    assert client.vector_stores.search_request["filters"] == {
+        "type": "in",
+        "key": "arxiv_id",
+        "value": ["2608.00001", "2608.00002"],
+    }
+
+
 def test_web_answer_sends_fixed_model_policy_and_extracts_citations(db, created_at):
     expert, _ = objects(db, created_at)
     client = FakeClient()
@@ -103,6 +115,7 @@ def test_web_answer_sends_fixed_model_policy_and_extracts_citations(db, created_
         library_context="[L1] evidence",
         library_citations=(library,),
         use_web=True,
+        scope="global",
     )
     request = client.responses.request
     assert request["model"] == "gpt-5.6"

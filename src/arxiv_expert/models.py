@@ -17,6 +17,15 @@ class Expert:
 
 
 @dataclass(frozen=True, slots=True)
+class Conversation:
+    id: str
+    expert_id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class ArxivPaper:
     arxiv_id: str
     version: int
@@ -47,8 +56,25 @@ class Paper:
     abstract_url: str
     pdf_url: str
     status: str
+    origin: str = "topic"
     openai_file_id: str | None = None
     error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PaperImportCandidate:
+    arxiv_id: str
+    title: str
+    authors: tuple[str, ...]
+    published_at: datetime
+    abstract_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperImportResult:
+    paper: Paper
+    imported: bool
+    focused: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +104,7 @@ class LibraryHit:
 class Message:
     id: int
     expert_id: str
+    conversation_id: str
     role: str
     content: str
     mode: str

@@ -14,7 +14,7 @@ class FlowChatBackend:
         self.file_id = file_id
         self.web_calls = 0
 
-    def search_library(self, expert, query):
+    def search_library(self, expert, query, arxiv_ids=None):
         if "not-yet-known" in query:
             return []
         return [
@@ -46,9 +46,20 @@ def test_complete_create_sync_restart_chat_and_web_fallback_flow(db, paths, crea
     ready_paper = reopened.list_papers(expert.id)[0]
     backend = FlowChatBackend(ready_paper.openai_file_id)
     chat = ChatService(reopened, backend)
-    library_answer = chat.ask(restored_expert, "Design a control experiment", "Experiment Designer")
-    web_answer = chat.ask(restored_expert, "Find not-yet-known work", "Analyze")
+    first_chat = reopened.list_conversations(expert.id)[0]
+    second_chat = reopened.create_conversation(expert.id)
+    reopened.focus_paper(first_chat.id, ready_paper.id)
+    library_answer = chat.ask(
+        restored_expert,
+        first_chat.id,
+        "Design a control experiment",
+        "Experiment Designer",
+    )
+    web_answer = chat.ask(restored_expert, second_chat.id, "Find not-yet-known work", "Analyze")
 
     assert library_answer.citations[0].url == ready_paper.abstract_url
     assert web_answer.used_web and backend.web_calls == 1
-    assert len(reopened.list_messages(expert.id)) == 4
+    assert len(reopened.list_messages(first_chat.id)) == 2
+    assert len(reopened.list_messages(second_chat.id)) == 2
+    assert len(reopened.list_conversation_papers(first_chat.id)) == 1
+    assert reopened.list_conversation_papers(second_chat.id) == []

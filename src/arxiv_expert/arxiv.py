@@ -103,7 +103,7 @@ class ArxivClient:
         self.http = http_client or httpx.Client(
             timeout=httpx.Timeout(60.0, connect=15.0),
             follow_redirects=True,
-            headers={"User-Agent": "arxiv-expert/0.1 (personal research assistant)"},
+            headers={"User-Agent": "arxiv-expert/0.2 (personal research assistant)"},
         )
         self.page_size = page_size
         self.sleep = sleep
@@ -143,6 +143,30 @@ class ArxivClient:
             for paper in found
             if start_utc <= paper.published_at <= end_utc and category in paper.categories
         ]
+
+    def paper_by_id(self, value: str) -> ArxivPaper | None:
+        arxiv_id, _ = canonical_arxiv_id(value)
+        parameters = {"id_list": arxiv_id, "max_results": 1}
+        response = self._get_with_retry(f"{ARXIV_API_URL}?{urlencode(parameters)}")
+        papers, _ = parse_atom_feed(response.content)
+        return next((paper for paper in papers if paper.arxiv_id == arxiv_id), None)
+
+    def search_by_title(self, title: str, *, limit: int = 5) -> list[ArxivPaper]:
+        clean_title = " ".join(title.strip().strip('"').strip("'").split())
+        if not clean_title:
+            return []
+        # Quotes and backslashes have special meaning in arXiv's query grammar.
+        escaped = clean_title.replace("\\", " ").replace('"', " ")
+        parameters = {
+            "search_query": f'ti:"{escaped}"',
+            "start": 0,
+            "max_results": min(max(limit, 1), 5),
+            "sortBy": "relevance",
+            "sortOrder": "descending",
+        }
+        response = self._get_with_retry(f"{ARXIV_API_URL}?{urlencode(parameters)}")
+        papers, _ = parse_atom_feed(response.content)
+        return papers[:limit]
 
     def download_pdf(self, url: str, target) -> None:
         last_error: Exception | None = None
