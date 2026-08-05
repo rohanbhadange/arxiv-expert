@@ -83,3 +83,23 @@ def test_rate_limit_retry_honors_retry_after_header():
     assert len(papers) == 1
     assert calls == 2
     assert 7.0 in waits
+
+
+def test_exact_lookup_uses_id_list_and_title_search_is_capped_to_five():
+    requests = []
+
+    def handler(request):
+        requests.append(parse_qs(urlparse(str(request.url)).query))
+        return httpx.Response(200, content=FEED, request=request)
+
+    client = ArxivClient(
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)), sleep=lambda _: None
+    )
+    exact = client.paper_by_id("https://arxiv.org/abs/2608.00001v9")
+    matches = client.search_by_title("Learning to Move", limit=20)
+
+    assert exact.arxiv_id == "2608.00001"
+    assert matches[0].title == "Learning to Move"
+    assert requests[0]["id_list"] == ["2608.00001"]
+    assert requests[1]["search_query"] == ['ti:"Learning to Move"']
+    assert requests[1]["max_results"] == ["5"]

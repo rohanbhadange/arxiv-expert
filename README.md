@@ -12,8 +12,10 @@ back to cited web research when the requested paper is not present.
 - A local browser chat with **Analyze** and **Experiment Designer** modes.
 - One isolated, full-text paper library per official arXiv topic.
 - Daily unattended ingestion plus catch-up synchronization after downtime.
+- Persistent, named conversations with isolated chat histories.
+- An optional focus of up to eight papers per conversation, with stable **F1–F8** citations.
+- Explicit in-chat imports for any arXiv paper, regardless of the expert's tracked topic.
 - Clickable **Library** and **Web** citations.
-- Persistent paper status and chat history across restarts.
 
 The application sends public arXiv PDFs and chat requests to OpenAI using the
 user's own API key. It stores the key in a user-only local configuration file.
@@ -69,15 +71,44 @@ and binds only to the local computer.
 
 Open the printed address and:
 
-1. Use **Analyze** to ask what papers found, compared, or concluded.
-2. Use **Experiment Designer** to turn the library into hypotheses, baselines,
+1. Start a chat or reopen an existing one from the current expert's sidebar.
+   Chat titles come from the first message; hover over a chat's **⋯** menu to
+   rename or delete it.
+2. Use **Analyze** to ask what papers found, compared, or concluded.
+3. Use **Experiment Designer** to turn the library into hypotheses, baselines,
    ablations, measurements, and follow-up experiments.
-3. Follow **Library** citations for ingested papers and **Web** citations for
+4. Follow **Library** citations for ingested papers and **Web** citations for
    relevant work that is not in the saved corpus.
-4. Open the **Library** tab to inspect paper titles and indexing status.
+5. Open the **Library** tab to inspect paper status and whether it arrived from
+   the tracked **Topic** or a **Manual** import.
 
-Chats and the paper library persist between sessions. Stop the local server
-with `Ctrl+C`; daily ingestion continues through the installed background task.
+Conversations, their focused papers, and the global paper library persist between
+sessions. Deleting a conversation does not delete its papers. Stop the local
+server with `Ctrl+C`; daily ingestion continues through the installed background
+task.
+
+### Focus a conversation on specific papers
+
+Use **Focus in this chat** in the Library tab, or type one of these messages:
+
+```text
+Import arXiv:2401.12345
+Bring in https://arxiv.org/abs/2401.12345
+Add the paper "DreamerV3"
+Focus on Learning to Move
+Remove arXiv:2401.12345 from this chat
+```
+
+An exact arXiv ID or link imports immediately. A title search shows up to five
+official arXiv matches and waits for confirmation. The paper is indexed once in
+the expert's global library, then reused by any conversation without another
+upload.
+
+With focused papers, every answer receives their metadata and abstracts, and
+full-text retrieval is restricted to only those papers. The assistant does not
+silently broaden the evidence. For a single turn, say **search the full library**
+or explicitly ask it to **search the web**. With no focused papers, the full saved
+library remains the default.
 
 ## Operational commands
 
@@ -104,6 +135,13 @@ the next scheduled run or chat startup catches up every missed day.
 - Once a paper is indexed, later revisions are ignored.
 - Failed downloads and indexing jobs retry during every sync.
 - Web-discovered papers support the current answer but are never added silently.
+- A manually requested paper may come from any arXiv category and is saved once
+  in the same expert-wide library.
+- Each conversation can focus on at most eight saved papers.
+
+Existing installations migrate automatically on the next run. Existing papers,
+citations, timestamps, and chat messages are preserved, and migrated chat
+history is titled from its first message.
 
 ## Development
 

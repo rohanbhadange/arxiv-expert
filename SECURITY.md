@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest `0.1.x` release and the default branch.
+Security fixes are applied to the latest `0.2.x` release and the default branch.
 
 ## Reporting a vulnerability
 

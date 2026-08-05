@@ -58,9 +58,12 @@ def main() -> None:
             paper, _ = db.add_paper(expert.id, candidate)
             file_id = backend.upload_pdf(expert, paper, pdf)
             db.set_paper_status(paper.id, "ready", openai_file_id=file_id)
+            conversation = db.list_conversations(expert.id)[0]
+            db.focus_paper(conversation.id, paper.id)
             chat = ChatService(db, backend)
             analysis = chat.ask(
                 expert,
+                conversation.id,
                 "What is this paper's primary contribution and evaluation setup?",
                 "Analyze",
             )
@@ -68,11 +71,15 @@ def main() -> None:
                 raise RuntimeError("Library-grounded analysis did not complete as expected.")
             if not any(item.kind == "library" for item in analysis.citations):
                 raise RuntimeError("Library analysis did not expose a library citation.")
+            if analysis.citations[0].marker != "F1":
+                raise RuntimeError("Focused analysis did not use a stable F1 citation.")
             if not any(f"[{item.marker}]" in analysis.text for item in analysis.citations):
                 raise RuntimeError("Library analysis did not cite its evidence in the answer text.")
 
+            second_conversation = db.create_conversation(expert.id)
             experiment = chat.ask(
                 expert,
+                second_conversation.id,
                 "Search the web for a different recent robotics paper and design a follow-up experiment that connects it to this paper.",
                 "Experiment Designer",
             )
@@ -104,11 +111,15 @@ def main() -> None:
                 raise RuntimeError(
                     f"Experiment design omitted required sections: {', '.join(missing)}"
                 )
-            if len(db.list_messages(expert.id)) != 4:
-                raise RuntimeError("Chat history did not persist both live conversations.")
+            if len(db.list_messages(conversation.id)) != 2:
+                raise RuntimeError("Focused chat history was not isolated.")
+            if len(db.list_messages(second_conversation.id)) != 2:
+                raise RuntimeError("Unfocused chat history was not isolated.")
+            if db.list_conversation_papers(second_conversation.id):
+                raise RuntimeError("Paper focus leaked into another conversation.")
             print(
-                f"PASS: indexed {candidate.arxiv_id}; produced library-cited analysis; "
-                "produced web-cited experiment design; persisted chat history."
+                f"PASS: indexed {candidate.arxiv_id}; produced focused library-cited analysis; "
+                "produced web-cited experiment design; isolated two persistent chats."
             )
     finally:
         arxiv.close()
