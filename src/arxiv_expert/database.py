@@ -12,10 +12,12 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .conversation_titles import derive_conversation_title
 from .models import ArxivPaper, Citation, Conversation, Expert, Message, Paper
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 NEW_CHAT_TITLE = "New chat"
+LEGACY_CHAT_TITLE = "Previous chat"
 
 SCHEMA = """
 
@@ -222,6 +224,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS conversations_expert_updated_idx "
                 "ON conversations(expert_id, updated_at DESC)"
             )
+            self._replace_legacy_conversation_titles(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.execute("COMMIT")
         except Exception:
@@ -259,13 +262,35 @@ class Database:
                 (
                     conversation_id,
                     expert["id"],
-                    "Previous chat" if has_messages else NEW_CHAT_TITLE,
+                    LEGACY_CHAT_TITLE if has_messages else NEW_CHAT_TITLE,
                     created_at,
                     last_message or created_at,
                 ),
             )
             result[expert["id"]] = conversation_id
         return result
+
+    @staticmethod
+    def _replace_legacy_conversation_titles(connection: sqlite3.Connection) -> None:
+        """Give migrated chat history a useful title without discarding it."""
+        legacy_conversations = connection.execute(
+            "SELECT id FROM conversations WHERE title = ?", (LEGACY_CHAT_TITLE,)
+        ).fetchall()
+        for conversation in legacy_conversations:
+            first_message = connection.execute(
+                "SELECT content FROM messages WHERE conversation_id = ? "
+                "ORDER BY CASE role WHEN 'user' THEN 0 ELSE 1 END, id LIMIT 1",
+                (conversation["id"],),
+            ).fetchone()
+            title = (
+                derive_conversation_title(first_message["content"])
+                if first_message
+                else NEW_CHAT_TITLE
+            )
+            connection.execute(
+                "UPDATE conversations SET title = ? WHERE id = ?",
+                (title, conversation["id"]),
+            )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

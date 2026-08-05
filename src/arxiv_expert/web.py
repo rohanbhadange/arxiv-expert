@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from contextlib import suppress
 from datetime import timezone
 
@@ -12,7 +11,7 @@ from arxiv_expert.arxiv import ArxivClient
 from arxiv_expert.categories import CATEGORIES, CATEGORY_BY_CODE
 from arxiv_expert.chat import ChatService
 from arxiv_expert.config import default_paths, load_settings
-from arxiv_expert.database import Database
+from arxiv_expert.database import NEW_CHAT_TITLE, Database
 from arxiv_expert.openai_service import OpenAIService
 from arxiv_expert.paper_import import (
     MAX_FOCUS_PAPERS,
@@ -23,6 +22,8 @@ from arxiv_expert.paper_import import (
 from arxiv_expert.sync import SyncService
 
 st.set_page_config(page_title="arXiv Expert", page_icon="📚", layout="wide")
+
+CHAT_DIALOG_KEY = "chat_dialog"
 
 
 def _resources():
@@ -43,6 +44,80 @@ def _citation_list(citations) -> None:
             st.markdown(f"**{citation.marker} · {badge}:** [{citation.title}]({citation.url})")
 
 
+def _create_expert_form(experts, db, backend) -> None:
+    existing_categories = {saved_expert.category for saved_expert in experts}
+    available = [category for category in CATEGORIES if category.code not in existing_categories]
+    if not available:
+        st.caption("Every official topic already has an expert.")
+        return
+    selected_category = st.selectbox(
+        "Official arXiv topic",
+        available,
+        format_func=lambda category: category.label,
+        key="new_category",
+    )
+    new_name = st.text_input("Expert name", value=selected_category.name, key="new_expert_name")
+    if st.button("Create expert", key="create_expert", width="stretch"):
+        clean_name = new_name.strip()
+        if not clean_name:
+            st.error("Expert name cannot be empty.")
+            return
+        try:
+            store_id = backend.create_vector_store(clean_name, selected_category.code)
+            try:
+                created = db.create_expert(clean_name, selected_category.code, store_id)
+            except Exception:
+                backend.delete_vector_store(store_id)
+                raise
+            st.session_state["expert_id"] = created.id
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Could not create expert: {exc}")
+
+
+def _dismiss_chat_dialog() -> None:
+    st.session_state.pop(CHAT_DIALOG_KEY, None)
+
+
+@st.dialog("Rename chat", on_dismiss=_dismiss_chat_dialog)
+def _rename_chat_dialog(db, conversation) -> None:
+    renamed = st.text_input(
+        "Chat name", value=conversation.title, key=f"rename_dialog_{conversation.id}"
+    )
+    save_col, cancel_col = st.columns(2)
+    if save_col.button("Save", key=f"save_name_{conversation.id}", type="primary", width="stretch"):
+        try:
+            db.rename_conversation(conversation.id, renamed)
+            st.session_state.pop(CHAT_DIALOG_KEY, None)
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
+    if cancel_col.button("Cancel", key=f"cancel_rename_{conversation.id}", width="stretch"):
+        st.session_state.pop(CHAT_DIALOG_KEY, None)
+        st.rerun()
+
+
+@st.dialog("Delete chat", on_dismiss=_dismiss_chat_dialog)
+def _delete_chat_dialog(db, expert, conversation, active_key, pending_imports) -> None:
+    st.write(f"Delete **{conversation.title}** and all of its messages?")
+    st.caption("This cannot be undone.")
+    delete_col, cancel_col = st.columns(2)
+    if delete_col.button(
+        "Delete", key=f"confirm_delete_chat_{conversation.id}", type="primary", width="stretch"
+    ):
+        db.delete_conversation(conversation.id)
+        remaining = db.list_conversations(expert.id)
+        if not remaining:
+            remaining = [db.create_conversation(expert.id)]
+        st.session_state[active_key] = remaining[0].id
+        pending_imports.pop(conversation.id, None)
+        st.session_state.pop(CHAT_DIALOG_KEY, None)
+        st.rerun()
+    if cancel_col.button("Cancel", key=f"cancel_delete_{conversation.id}", width="stretch"):
+        st.session_state.pop(CHAT_DIALOG_KEY, None)
+        st.rerun()
+
+
 try:
     paths, db, backend = _resources()
 except RuntimeError:
@@ -52,144 +127,160 @@ except RuntimeError:
 
 experts = db.list_experts()
 
-st.sidebar.title("arXiv Expert")
-with st.sidebar.expander("New expert"):
-    existing_categories = {expert.category for expert in experts}
-    available = [category for category in CATEGORIES if category.code not in existing_categories]
-    if available:
-        selected_category = st.selectbox(
-            "Official arXiv topic",
-            available,
-            format_func=lambda category: category.label,
-            key="new_category",
-        )
-        new_name = st.text_input("Expert name", value=selected_category.name)
-        if st.button("Create expert", width="stretch"):
-            clean_name = new_name.strip()
-            if not clean_name:
-                st.error("Expert name cannot be empty.")
-            else:
-                try:
-                    store_id = backend.create_vector_store(clean_name, selected_category.code)
-                    try:
-                        created = db.create_expert(clean_name, selected_category.code, store_id)
-                    except Exception:
-                        backend.delete_vector_store(store_id)
-                        raise
-                    st.session_state["expert_id"] = created.id
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Could not create expert: {exc}")
-    else:
-        st.caption("Every official topic already has an expert.")
-
 if not experts:
     st.title("Create your first expert")
-    st.write("Choose an official arXiv topic in the sidebar. Tracking starts at creation time.")
+    st.write("Choose an official arXiv topic. Tracking starts at creation time.")
+    _create_expert_form(experts, db, backend)
     st.stop()
 
 expert_ids = [expert.id for expert in experts]
 selected_id = st.session_state.get("expert_id")
 if selected_id not in expert_ids:
     selected_id = expert_ids[0]
-selected_index = expert_ids.index(selected_id)
-expert = st.sidebar.selectbox(
-    "Expert",
-    experts,
-    index=selected_index,
-    format_func=lambda item: item.name,
-)
+expert = next(item for item in experts if item.id == selected_id)
 st.session_state["expert_id"] = expert.id
+
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] [class*="st-key-chat_select_"] button {
+        justify-content: flex-start;
+        text-align: left;
+    }
+    [data-testid="stSidebar"] [class*="st-key-chat_select_"] button p {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    [data-testid="stSidebar"] [class*="st-key-chat_menu_"] {
+        opacity: 0;
+        transition: opacity 120ms ease-in-out;
+    }
+    [data-testid="stSidebar"] [class*="st-key-chat_row_"]:hover [class*="st-key-chat_menu_"],
+    [data-testid="stSidebar"] [class*="st-key-chat_row_"]:focus-within [class*="st-key-chat_menu_"] {
+        opacity: 1;
+    }
+    @media (hover: none) {
+        [data-testid="stSidebar"] [class*="st-key-chat_menu_"] {
+            opacity: 1;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.sidebar.popover(
+    expert.name,
+    icon=":material/school:",
+    type="tertiary",
+    width="stretch",
+    key=f"expert_switcher_{expert.id}",
+):
+    st.caption("Switch expert")
+    for saved_expert in experts:
+        if st.button(
+            saved_expert.name,
+            key=f"switch_expert_{saved_expert.id}",
+            disabled=saved_expert.id == expert.id,
+            type="tertiary",
+            width="stretch",
+        ):
+            st.session_state["expert_id"] = saved_expert.id
+            st.rerun()
+        st.caption(CATEGORY_BY_CODE[saved_expert.category].label)
+    st.divider()
+    st.markdown("**Add expert**")
+    _create_expert_form(experts, db, backend)
 
 conversations = db.list_conversations(expert.id)
 if not conversations:
     conversations = [db.create_conversation(expert.id)]
-conversation_key = f"conversation_id_{expert.id}"
-picker_key = f"conversation_picker_{expert.id}"
-forced_conversation_id = st.session_state.pop(f"force_{conversation_key}", None)
-if forced_conversation_id:
-    st.session_state.pop(picker_key, None)
-selected_conversation_id = forced_conversation_id or st.session_state.get(conversation_key)
-conversation_ids = [item.id for item in conversations]
-conversation_title_counts = Counter(item.title for item in conversations)
-if selected_conversation_id not in conversation_ids:
-    selected_conversation_id = conversation_ids[0]
-conversation = st.sidebar.selectbox(
-    "Conversation",
-    conversations,
-    index=conversation_ids.index(selected_conversation_id),
-    format_func=lambda item: (
-        item.title
-        if conversation_title_counts[item.title] == 1
-        else f"{item.title} · {item.id[:4]}"
-    ),
-    key=picker_key,
-)
-st.session_state[conversation_key] = conversation.id
+active_conversation_key = f"active_conversation_id_{expert.id}"
+for obsolete_key in (
+    f"conversation_id_{expert.id}",
+    f"conversation_picker_{expert.id}",
+    f"force_conversation_id_{expert.id}",
+):
+    st.session_state.pop(obsolete_key, None)
+
+conversations_by_id = {item.id: item for item in conversations}
+active_conversation_id = st.session_state.get(active_conversation_key)
+if active_conversation_id not in conversations_by_id:
+    active_conversation_id = conversations[0].id
+    st.session_state[active_conversation_key] = active_conversation_id
+conversation = conversations_by_id[active_conversation_id]
+pending_imports = st.session_state.setdefault("pending_imports", {})
 
 if st.sidebar.button("New chat", width="stretch"):
-    created_conversation = db.create_conversation(expert.id)
-    st.session_state[f"force_{conversation_key}"] = created_conversation.id
+    is_pristine = (
+        conversation.title == NEW_CHAT_TITLE
+        and not db.list_messages(conversation.id, limit=1)
+        and not db.list_conversation_papers(conversation.id)
+        and not pending_imports.get(conversation.id)
+    )
+    if not is_pristine:
+        conversation = db.create_conversation(expert.id)
+        st.session_state[active_conversation_key] = conversation.id
     st.rerun()
 
-with st.sidebar.expander("Delete conversation"):
-    confirm_chat_delete = st.checkbox(
-        f"Delete “{conversation.title}”", key=f"delete_conversation_{conversation.id}"
-    )
-    if st.button(
-        "Delete conversation",
-        key=f"delete_conversation_button_{conversation.id}",
-        disabled=not confirm_chat_delete,
-        width="stretch",
-    ):
-        db.delete_conversation(conversation.id)
-        remaining = db.list_conversations(expert.id)
-        if not remaining:
-            remaining = [db.create_conversation(expert.id)]
-        st.session_state[f"force_{conversation_key}"] = remaining[0].id
-        pending = st.session_state.get("pending_imports", {})
-        pending.pop(conversation.id, None)
-        st.rerun()
-
-with st.sidebar.expander("Rename conversation"):
-    renamed = st.text_input(
-        "Conversation name", value=conversation.title, key=f"rename_{conversation.id}"
-    )
-    if st.button("Save name", key=f"save_name_{conversation.id}", width="stretch"):
-        try:
-            db.rename_conversation(conversation.id, renamed)
-            st.session_state[f"force_{conversation_key}"] = conversation.id
+st.sidebar.caption("Chats")
+chat_action = None
+for saved_conversation in conversations:
+    safe_id = saved_conversation.id.replace("-", "_")
+    with st.sidebar.container(key=f"chat_row_{safe_id}"):
+        title_col, menu_col = st.columns([8, 1], gap="small", vertical_alignment="center")
+        if title_col.button(
+            saved_conversation.title,
+            key=f"chat_select_{safe_id}",
+            type="secondary" if saved_conversation.id == conversation.id else "tertiary",
+            width="stretch",
+        ):
+            st.session_state[active_conversation_key] = saved_conversation.id
             st.rerun()
-        except ValueError as exc:
-            st.error(str(exc))
+        action = menu_col.menu_button(
+            "⋯",
+            ["Rename", "Delete"],
+            key=f"chat_menu_{safe_id}",
+            help=f"Options for {saved_conversation.title}",
+            type="tertiary",
+        )
+        if action:
+            chat_action = (action, saved_conversation)
 
 counts = db.paper_counts(expert.id)
 category = CATEGORY_BY_CODE[expert.category]
-st.sidebar.caption(category.label)
-st.sidebar.metric("Ready papers", counts["ready"])
 last_sync = (
     expert.last_sync_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     if expert.last_sync_at
     else "Not yet"
 )
-st.sidebar.caption(f"Last sync: {last_sync}")
 
-if st.sidebar.button("Sync now", width="stretch"):
-    arxiv = ArxivClient()
-    try:
-        with st.spinner("Finding and indexing new papers..."):
-            result = SyncService(db, arxiv, backend).sync_expert(expert)
-        if result.skipped:
-            st.sidebar.info("A background sync is already running.")
-        else:
-            st.sidebar.success(f"{result.ingested} indexed, {result.failed} failed")
-        st.rerun()
-    except Exception as exc:
-        st.sidebar.error(f"Sync failed: {exc}")
-    finally:
-        arxiv.close()
-
-with st.sidebar.expander("Delete expert"):
+with st.sidebar.popover(
+    "Expert settings",
+    icon=":material/settings:",
+    type="tertiary",
+    width="stretch",
+    key=f"expert_settings_{expert.id}",
+):
+    st.caption(category.label)
+    st.metric("Ready papers", counts["ready"])
+    st.caption(f"Last sync: {last_sync}")
+    if st.button("Sync now", key=f"sync_{expert.id}", width="stretch"):
+        arxiv = ArxivClient()
+        try:
+            with st.spinner("Finding and indexing new papers..."):
+                result = SyncService(db, arxiv, backend).sync_expert(expert)
+            if result.skipped:
+                st.info("A background sync is already running.")
+            else:
+                st.success(f"{result.ingested} indexed, {result.failed} failed")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Sync failed: {exc}")
+        finally:
+            arxiv.close()
+    st.divider()
     st.warning("This removes the saved library and its chat history.")
     confirm_delete = st.checkbox(f"Delete {expert.name}", key=f"confirm_delete_{expert.id}")
     if st.button("Delete permanently", disabled=not confirm_delete, width="stretch"):
@@ -208,6 +299,28 @@ with st.sidebar.expander("Delete expert"):
             st.rerun()
         except Exception as exc:
             st.error(f"Could not delete expert: {exc}")
+
+if chat_action:
+    action, action_conversation = chat_action
+    st.session_state[CHAT_DIALOG_KEY] = {
+        "action": action,
+        "conversation_id": action_conversation.id,
+        "expert_id": expert.id,
+    }
+
+dialog_state = st.session_state.get(CHAT_DIALOG_KEY)
+if dialog_state and dialog_state["expert_id"] == expert.id:
+    target_conversation = db.get_conversation(dialog_state["conversation_id"])
+    if not target_conversation:
+        st.session_state.pop(CHAT_DIALOG_KEY, None)
+    elif dialog_state["action"] == "Rename":
+        _rename_chat_dialog(db, target_conversation)
+    else:
+        _delete_chat_dialog(
+            db, expert, target_conversation, active_conversation_key, pending_imports
+        )
+elif dialog_state:
+    st.session_state.pop(CHAT_DIALOG_KEY, None)
 
 st.title(expert.name)
 st.caption(
@@ -273,7 +386,6 @@ with chat_tab:
             st.markdown(message.content)
             if message.role == "assistant":
                 _citation_list(message.citations)
-    pending_imports = st.session_state.setdefault("pending_imports", {})
     candidates = pending_imports.get(conversation.id, ())
     if candidates:
         st.markdown("**Select one paper:**")

@@ -27,7 +27,7 @@ dependencies = [
   "httpx>=0.27,<1",
   "openai>=2.15,<3",
   "platformdirs>=4.3",
-  "streamlit>=1.48",
+  "streamlit>=1.60",
   "typer>=0.15",
 ]
 

@@ -71,7 +71,9 @@ and binds only to the local computer.
 
 Open the printed address and:
 
-1. Start a named conversation or reopen an existing one from the sidebar.
+1. Start a chat or reopen an existing one from the current expert's sidebar.
+   Chat titles come from the first message; hover over a chat's **⋯** menu to
+   rename or delete it.
 2. Use **Analyze** to ask what papers found, compared, or concluded.
 3. Use **Experiment Designer** to turn the library into hypotheses, baselines,
    ablations, measurements, and follow-up experiments.
@@ -138,8 +140,8 @@ the next scheduled run or chat startup catches up every missed day.
 - Each conversation can focus on at most eight saved papers.
 
 Existing installations migrate automatically on the next run. Existing papers,
-citations, timestamps, and chat messages are preserved in a **Previous chat**
-conversation.
+citations, timestamps, and chat messages are preserved, and migrated chat
+history is titled from its first message.
 
 ## Development
 

@@ -148,6 +148,11 @@ def test_legacy_migration_preserves_39_papers_messages_and_citations(tmp_path, c
             )
         connection.execute(
             "INSERT INTO messages(expert_id, role, content, mode, citations_json, created_at) "
+            "VALUES (?, 'user', 'How should robots learn from demonstrations?', 'Analyze', '[]', ?)",
+            ("expert-1", timestamp),
+        )
+        connection.execute(
+            "INSERT INTO messages(expert_id, role, content, mode, citations_json, created_at) "
             "VALUES (?, 'assistant', 'Legacy answer', 'Analyze', ?, ?)",
             (
                 "expert-1",
@@ -164,8 +169,11 @@ def test_legacy_migration_preserves_39_papers_messages_and_citations(tmp_path, c
     messages = migrated.list_messages(conversations[0].id)
     assert len(papers) == 39
     assert {paper.origin for paper in papers} == {"topic"}
-    assert conversations[0].title == "Previous chat"
-    assert messages[0].content == "Legacy answer"
-    assert messages[0].citations == (citation,)
+    assert conversations[0].title == "How should robots learn from demonstrations"
+    assert [message.content for message in messages] == [
+        "How should robots learn from demonstrations?",
+        "Legacy answer",
+    ]
+    assert messages[1].citations == (citation,)
     with migrated.connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3

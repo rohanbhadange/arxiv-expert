@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from .arxiv import ID_PATTERN
+from .conversation_titles import derive_conversation_title
 from .database import Database
 from .models import ChatAnswer, Citation, Expert, LibraryHit, Message, Paper
 
@@ -162,15 +163,3 @@ class ChatService:
             blocks.append(block)
             citations.append(Citation("library", paper.title, paper.abstract_url, marker))
         return "\n\n".join(blocks), citations
-
-
-def derive_conversation_title(query: str) -> str:
-    """Create a useful local title without another model call."""
-    clean = " ".join(query.strip().split()).strip("?!.,:; ")
-    if not clean:
-        return "New chat"
-    words = clean.split()
-    title = " ".join(words[:8])
-    if len(words) > 8:
-        title += "…"
-    return title[:80]
