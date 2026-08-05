@@ -239,7 +239,7 @@ for saved_conversation in conversations:
             st.session_state[active_conversation_key] = saved_conversation.id
             st.rerun()
         action = menu_col.menu_button(
-            "⋯",
+            ":material/more_horiz:",
             ["Rename", "Delete"],
             key=f"chat_menu_{safe_id}",
             help=f"Options for {saved_conversation.title}",
